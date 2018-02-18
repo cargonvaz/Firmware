@@ -575,6 +575,11 @@ void Logger::add_default_topics()
 	add_topic("vehicle_attitude_groundtruth", 10);
 	add_topic("vehicle_global_position_groundtruth", 100);
 	add_topic("vehicle_local_position_groundtruth", 100);
+
+	// debugging issue #8556
+	// TODO: remove once resolved
+	add_topic("actuator_armed");
+	add_topic("commander_state");
 #endif
 
 	// Note: try to avoid setting the interval where possible, as it increases RAM usage

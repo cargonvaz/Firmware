@@ -75,6 +75,7 @@
 
 #include <systemlib/systemlib.h>
 #include <lib/mixer/mixer.h>
+#include <mathlib/mathlib.h>
 
 #include <uORB/topics/actuator_controls.h>
 #include <uORB/topics/actuator_armed.h>
@@ -200,6 +201,8 @@ PWMSim::PWMSim() :
 	for (unsigned i = 0; i < actuator_controls_s::NUM_ACTUATOR_CONTROL_GROUPS; i++) {
 		_control_subs[i] = -1;
 	}
+
+	_debug_enabled = true;
 }
 
 PWMSim::~PWMSim()
@@ -373,6 +376,10 @@ PWMSim::task_main()
 
 	_armed_sub = orb_subscribe(ORB_ID(actuator_armed));
 
+	if (_armed_sub < 0) {
+		PX4_ERR("orb subscribe actuator_armed failed");
+	}
+
 	/* advertise the mixed control outputs */
 	actuator_outputs_s outputs = {};
 
@@ -392,9 +399,7 @@ PWMSim::task_main()
 		if (_current_update_rate != _update_rate) {
 			int update_rate_in_ms = int(1000 / _update_rate);
 
-			if (update_rate_in_ms < 2) {
-				update_rate_in_ms = 2;
-			}
+			update_rate_in_ms = math::constrain(update_rate_in_ms, 2, 100);
 
 			for (unsigned i = 0; i < actuator_controls_s::NUM_ACTUATOR_CONTROL_GROUPS; i++) {
 				if (_control_subs[i] >= 0) {
@@ -404,6 +409,8 @@ PWMSim::task_main()
 
 			// up_pwm_servo_set_rate(_update_rate);
 			_current_update_rate = _update_rate;
+
+			PX4_DEBUG("update rate %d Hz (%d ms interval) ", _update_rate, update_rate_in_ms);
 		}
 
 		/* this can happen during boot, but after the sleep its likely resolved */
