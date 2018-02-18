@@ -68,6 +68,7 @@
 #include <uORB/topics/vehicle_status.h>
 #include <uORB/topics/wind_estimate.h>
 #include <uORB/topics/landing_target_pose.h>
+#include <uORB/topics/vehicle_airdata.h>
 
 using control::BlockParamFloat;
 using control::BlockParamExtFloat;
@@ -466,6 +467,7 @@ void Ekf2::run()
 	int vehicle_land_detected_sub = orb_subscribe(ORB_ID(vehicle_land_detected));
 	int status_sub = orb_subscribe(ORB_ID(vehicle_status));
 	int sensor_selection_sub = orb_subscribe(ORB_ID(sensor_selection));
+	int airdata_sub = orb_subscribe(ORB_ID(vehicle_airdata));
 	int landing_target_pose_sub = orb_subscribe(ORB_ID(landing_target_pose));
 
 	bool imu_bias_reset_request = false;
@@ -530,6 +532,7 @@ void Ekf2::run()
 
 		bool gps_updated = false;
 		bool airspeed_updated = false;
+		bool airdata_updated = false;
 		bool sensor_selection_updated = false;
 		bool optical_flow_updated = false;
 		bool range_finder_updated = false;
@@ -562,6 +565,8 @@ void Ekf2::run()
 		if (airspeed_updated) {
 			orb_copy(ORB_ID(airspeed), airspeed_sub, &airspeed);
 		}
+
+		orb_check(airdata_sub, &airdata_updated);
 
 		orb_check(sensor_selection_sub, &sensor_selection_updated);
 
@@ -725,19 +730,18 @@ void Ekf2::run()
 		}
 
 		// read baro data
-		if (sensors.baro_timestamp_relative == sensor_combined_s::RELATIVE_TIMESTAMP_INVALID) {
-			// set a zero timestamp to let the ekf replay program know that this data is not valid
-			_timestamp_balt_us = 0;
+		if (airdata_updated) {
+			vehicle_airdata_s airdata = {};
+			orb_copy(ORB_ID(vehicle_airdata), airdata_sub, &airdata);
 
-		} else {
-			if ((sensors.timestamp + sensors.baro_timestamp_relative) != _timestamp_balt_us) {
-				_timestamp_balt_us = sensors.timestamp + sensors.baro_timestamp_relative;
+			if (airdata.timestamp != _timestamp_balt_us) {
+				_timestamp_balt_us = airdata.timestamp;
 
 				// If the time last used by the EKF is less than specified, then accumulate the
 				// data and push the average when the specified interval is reached.
 				_balt_time_sum_ms += _timestamp_balt_us / 1000;
 				_balt_sample_count++;
-				_balt_data_sum += sensors.baro_alt_meter;
+				_balt_data_sum += airdata.baro_alt_meter;
 				uint32_t balt_time_ms = _balt_time_sum_ms / _balt_sample_count;
 
 				if (balt_time_ms - _balt_time_ms_last_used > (uint32_t)_params->sensor_interval_min_ms) {
@@ -746,7 +750,7 @@ void Ekf2::run()
 
 					// estimate air density assuming typical 20degC ambient temperature
 					const float pressure_to_density = 1.0f / (CONSTANTS_AIR_GAS_CONST * (20.0f - CONSTANTS_ABSOLUTE_NULL_CELSIUS));
-					const float rho = pressure_to_density * sensors.baro_pressure_pa;
+					const float rho = pressure_to_density * airdata.baro_pressure_pa;
 					_ekf.set_air_density(rho);
 
 					// calculate static pressure error = Pmeas - Ptruth
@@ -1059,8 +1063,6 @@ void Ekf2::run()
 				} else {
 					global_pos.terrain_alt = 0.0f; // Terrain altitude in m, WGS84
 				}
-
-				global_pos.pressure_alt = sensors.baro_alt_meter; // Pressure altitude AMSL (m)
 
 				global_pos.dead_reckoning = _ekf.inertial_dead_reckoning(); // True if this position is estimated through dead-reckoning
 
@@ -1439,6 +1441,7 @@ void Ekf2::run()
 	orb_unsubscribe(vehicle_land_detected_sub);
 	orb_unsubscribe(status_sub);
 	orb_unsubscribe(sensor_selection_sub);
+	orb_unsubscribe(airdata_sub);
 	orb_unsubscribe(landing_target_pose_sub);
 
 	for (unsigned i = 0; i < ORB_MULTI_MAX_INSTANCES; i++) {

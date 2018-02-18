@@ -1358,7 +1358,7 @@ int sdlog2_thread_main(int argc, char *argv[])
 	hrt_abstime gyro_timestamp = 0;
 	hrt_abstime accelerometer_timestamp = 0;
 	hrt_abstime magnetometer_timestamp = 0;
-	hrt_abstime barometer_timestamp = 0;
+	//hrt_abstime barometer_timestamp = 0;
 
 	/* initialize calculated mean SNR */
 	float snr_mean = 0.0f;
@@ -1531,10 +1531,10 @@ int sdlog2_thread_main(int argc, char *argv[])
 					write_IMU = true;
 				}
 
-				if (buf.sensor.timestamp + buf.sensor.baro_timestamp_relative != barometer_timestamp) {
-					barometer_timestamp = buf.sensor.timestamp + buf.sensor.baro_timestamp_relative;
-					write_SENS = true;
-				}
+//				if (buf.sensor.timestamp + buf.sensor.baro_timestamp_relative != barometer_timestamp) {
+//					barometer_timestamp = buf.sensor.timestamp + buf.sensor.baro_timestamp_relative;
+//					write_SENS = true;
+//				}
 
 				if (write_IMU) {
 					log_msg.msg_type = LOG_IMU_MSG;
@@ -1555,12 +1555,12 @@ int sdlog2_thread_main(int argc, char *argv[])
 				}
 
 				if (write_SENS) {
-					log_msg.msg_type = LOG_SENS_MSG;
-
-					log_msg.body.log_SENS.baro_pres = 0;
-					log_msg.body.log_SENS.baro_alt = buf.sensor.baro_alt_meter;
-					log_msg.body.log_SENS.baro_temp = buf.sensor.baro_temp_celcius;
-					LOGBUFFER_WRITE_AND_COUNT(SENS);
+//					log_msg.msg_type = LOG_SENS_MSG;
+//
+//					log_msg.body.log_SENS.baro_pres = 0;
+//					log_msg.body.log_SENS.baro_alt = buf.sensor.baro_alt_meter;
+//					log_msg.body.log_SENS.baro_temp = buf.sensor.baro_temp_celcius;
+//					LOGBUFFER_WRITE_AND_COUNT(SENS);
 				}
 			}
 

@@ -84,6 +84,7 @@
 #include <uORB/topics/differential_pressure.h>
 #include <uORB/topics/airspeed.h>
 #include <uORB/topics/sensor_preflight.h>
+#include <uORB/topics/vehicle_airdata.h>
 
 #include <DevMgr.hpp>
 
@@ -168,6 +169,7 @@ private:
 	int 		_params_sub{-1};			/**< notification of parameter updates */
 
 	orb_advert_t	_sensor_pub{nullptr};			/**< combined sensor data topic */
+	orb_advert_t	_airdata_pub{nullptr};			/**< combined sensor data topic */
 	orb_advert_t	_battery_pub[BOARD_NUMBER_BRICKS] {};			/**< battery status */
 
 #if BOARD_NUMBER_BRICKS > 1
@@ -207,7 +209,7 @@ private:
 	 * @param raw			Combined sensor data structure into which
 	 *				data should be returned.
 	 */
-	void		diff_pres_poll(struct sensor_combined_s &raw);
+	void		diff_pres_poll(vehicle_airdata_s &airdata);
 
 	/**
 	 * Check for changes in vehicle control mode.
@@ -275,7 +277,7 @@ Sensors::adc_init()
 }
 
 void
-Sensors::diff_pres_poll(struct sensor_combined_s &raw)
+Sensors::diff_pres_poll(vehicle_airdata_s &raw)
 {
 	bool updated;
 	orb_check(_diff_pres_sub, &updated);
@@ -561,7 +563,8 @@ Sensors::run()
 #endif
 	}
 
-	struct sensor_combined_s raw = {};
+	sensor_combined_s raw = {};
+	vehicle_airdata_s airdata = {};
 
 	struct sensor_preflight_s preflt = {};
 
@@ -584,14 +587,15 @@ Sensors::run()
 	_actuator_ctrl_0_sub = orb_subscribe(ORB_ID(actuator_controls_0));
 
 	/* get a set of initial values */
-	_voted_sensors_update.sensors_poll(raw);
+	_voted_sensors_update.sensors_poll(raw, airdata);
 
-	diff_pres_poll(raw);
+	diff_pres_poll(airdata);
 
 	_rc_update.rc_parameter_map_poll(_parameter_handles, true /* forced */);
 
 	/* advertise the sensor_combined topic and make the initial publication */
 	_sensor_pub = orb_advertise(ORB_ID(sensor_combined), &raw);
+	_airdata_pub = orb_advertise(ORB_ID(vehicle_airdata), &airdata);
 
 	/* advertise the sensor_preflight topic and make the initial publication */
 	preflt.accel_inconsistency_m_s_s = 0.0f;
@@ -641,18 +645,23 @@ Sensors::run()
 
 		/* the timestamp of the raw struct is updated by the gyro_poll() method (this makes the gyro
 		 * a mandatory sensor) */
-		_voted_sensors_update.sensors_poll(raw);
+		uint64_t airdata_prev_timestamp = airdata.timestamp;
+		_voted_sensors_update.sensors_poll(raw, airdata);
 
 		/* check battery voltage */
 		adc_poll();
 
-		diff_pres_poll(raw);
+		diff_pres_poll(airdata);
 
 		if (raw.timestamp > 0) {
 
 			_voted_sensors_update.set_relative_timestamps(raw);
 
 			orb_publish(ORB_ID(sensor_combined), _sensor_pub, &raw);
+
+			if (airdata.timestamp > airdata_prev_timestamp) {
+				orb_publish(ORB_ID(vehicle_airdata), _airdata_pub, &airdata);
+			}
 
 			_voted_sensors_update.check_failover();
 
@@ -664,7 +673,6 @@ Sensors::run()
 				_voted_sensors_update.calc_gyro_inconsistency(preflt);
 				_voted_sensors_update.calc_mag_inconsistency(preflt);
 				orb_publish(ORB_ID(sensor_preflight), _sensor_preflight, &preflt);
-
 			}
 		}
 
@@ -695,6 +703,7 @@ Sensors::run()
 	orb_unsubscribe(_params_sub);
 	orb_unsubscribe(_actuator_ctrl_0_sub);
 	orb_unadvertise(_sensor_pub);
+	orb_unadvertise(_airdata_pub);
 
 	_rc_update.deinit();
 	_voted_sensors_update.deinit();

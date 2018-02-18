@@ -56,7 +56,6 @@ VotedSensorsUpdate::VotedSensorsUpdate(const Parameters &parameters, bool hil_en
 	memset(&_last_sensor_data, 0, sizeof(_last_sensor_data));
 	memset(&_last_accel_timestamp, 0, sizeof(_last_accel_timestamp));
 	memset(&_last_mag_timestamp, 0, sizeof(_last_mag_timestamp));
-	memset(&_last_baro_timestamp, 0, sizeof(_last_baro_timestamp));
 	memset(&_accel_diff, 0, sizeof(_accel_diff));
 	memset(&_gyro_diff, 0, sizeof(_gyro_diff));
 	memset(&_mag_diff, 0, sizeof(_mag_diff));
@@ -91,7 +90,6 @@ int VotedSensorsUpdate::init(sensor_combined_s &raw)
 {
 	raw.accelerometer_timestamp_relative = sensor_combined_s::RELATIVE_TIMESTAMP_INVALID;
 	raw.magnetometer_timestamp_relative = sensor_combined_s::RELATIVE_TIMESTAMP_INVALID;
-	raw.baro_timestamp_relative = sensor_combined_s::RELATIVE_TIMESTAMP_INVALID;
 	raw.timestamp = 0;
 
 	initialize_sensors();
@@ -795,7 +793,7 @@ void VotedSensorsUpdate::mag_poll(struct sensor_combined_s &raw)
 	}
 }
 
-void VotedSensorsUpdate::baro_poll(struct sensor_combined_s &raw)
+void VotedSensorsUpdate::baro_poll(sensor_combined_s &raw, vehicle_airdata_s &airdata)
 {
 	bool got_update = false;
 	float *offsets[] = {&_corrections.baro_offset_0, &_corrections.baro_offset_1, &_corrections.baro_offset_2 };
@@ -837,10 +835,10 @@ void VotedSensorsUpdate::baro_poll(struct sensor_combined_s &raw)
 			got_update = true;
 			math::Vector<3> vect(baro_report.pressure, 0.f, 0.f);
 
-			_last_sensor_data[uorb_index].baro_temp_celcius = baro_report.temperature;
-			_last_sensor_data[uorb_index].baro_pressure_pa = corrected_pressure;
+			_last_airdata[uorb_index].timestamp = baro_report.timestamp;
+			_last_airdata[uorb_index].baro_temp_celcius = baro_report.temperature;
+			_last_airdata[uorb_index].baro_pressure_pa = corrected_pressure;
 
-			_last_baro_timestamp[uorb_index] = baro_report.timestamp;
 			_baro.voter.put(uorb_index, baro_report.timestamp, vect.data, baro_report.error_count, _baro.priority[uorb_index]);
 		}
 	}
@@ -850,8 +848,9 @@ void VotedSensorsUpdate::baro_poll(struct sensor_combined_s &raw)
 		_baro.voter.get_best(hrt_absolute_time(), &best_index);
 
 		if (best_index >= 0) {
-			raw.baro_temp_celcius = _last_sensor_data[best_index].baro_temp_celcius;
-			raw.baro_pressure_pa = _last_sensor_data[best_index].baro_pressure_pa;
+			airdata.timestamp = _last_airdata[best_index].timestamp;
+			airdata.baro_temp_celcius = _last_airdata[best_index].baro_temp_celcius;
+			airdata.baro_pressure_pa = _last_airdata[best_index].baro_pressure_pa;
 
 			if (_baro.last_best_vote != best_index) {
 				_baro.last_best_vote = (uint8_t)best_index;
@@ -873,7 +872,7 @@ void VotedSensorsUpdate::baro_poll(struct sensor_combined_s &raw)
 			const float p1 = _parameters.baro_qnh * 0.1f;
 
 			/* measured pressure in kPa */
-			const float p = raw.baro_pressure_pa * 0.001f;
+			const float p = airdata.baro_pressure_pa * 0.001f;
 
 			/*
 			 * Solve:
@@ -884,8 +883,7 @@ void VotedSensorsUpdate::baro_poll(struct sensor_combined_s &raw)
 			 * h = -------------------------------  + h1
 			 *                   a
 			 */
-			raw.baro_alt_meter = (((powf((p / p1), (-(a * CONSTANTS_AIR_GAS_CONST) / CONSTANTS_ONE_G))) * T1) - T1) / a;
-
+			airdata.baro_alt_meter = (((powf((p / p1), (-(a * CONSTANTS_AIR_GAS_CONST) / CONSTANTS_ONE_G))) * T1) - T1) / a;
 		}
 	}
 }
@@ -1015,12 +1013,12 @@ VotedSensorsUpdate::apply_mag_calibration(DevHandle &h, const struct mag_calibra
 #endif
 }
 
-void VotedSensorsUpdate::sensors_poll(sensor_combined_s &raw)
+void VotedSensorsUpdate::sensors_poll(sensor_combined_s &raw, vehicle_airdata_s &airdata)
 {
 	accel_poll(raw);
 	gyro_poll(raw);
 	mag_poll(raw);
-	baro_poll(raw);
+	baro_poll(raw, airdata);
 
 	// publish sensor corrections if necessary
 	if (!_hil_enabled && _corrections_changed) {
@@ -1069,10 +1067,6 @@ void VotedSensorsUpdate::set_relative_timestamps(sensor_combined_s &raw)
 	if (_last_mag_timestamp[_mag.last_best_vote]) {
 		raw.magnetometer_timestamp_relative = (int32_t)((int64_t)_last_mag_timestamp[_mag.last_best_vote] -
 						      (int64_t)raw.timestamp);
-	}
-
-	if (_last_baro_timestamp[_baro.last_best_vote]) {
-		raw.baro_timestamp_relative = (int32_t)((int64_t)_last_baro_timestamp[_baro.last_best_vote] - (int64_t)raw.timestamp);
 	}
 }
 
